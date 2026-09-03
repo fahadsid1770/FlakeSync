@@ -3,11 +3,16 @@ package flakesync;
 import flakesync.common.ConfigurationDefaults;
 import flakesync.common.Level;
 import flakesync.common.Logger;
+import flakesync.filter.CandidateFilter;
+import flakesync.filter.DependencyCandidateFilter;
+import flakesync.filter.NoOpCandidateFilter;
+import flakesync.filter.SourceFileResolver;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugin.PluginExecutionException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 
 import java.io.BufferedReader;
@@ -22,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 
@@ -30,10 +36,23 @@ import java.util.Scanner;
         requiresDependencyResolution = ResolutionScope.TEST)
 public class BarrierPointMojo extends FlakeSyncAbstractMojo {
 
+    // "dependency" (default) = our static filter; "none" = unfiltered baseline
+    // (Baseline A). "proximity" (Baseline B) is the next piece to add.
+    @Parameter(property = "flakesync.filterMode", defaultValue = "dependency")
+    private String filterMode;
+
+    private CandidateFilter createCandidateFilter() {
+        if ("none".equalsIgnoreCase(filterMode)) {
+            return new NoOpCandidateFilter();
+        }
+        return new DependencyCandidateFilter();
+    }
+
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         super.execute();
         Logger.getGlobal().log(Level.INFO, ("Running BarrierPointSearchMojo"));
+        CandidateFilter candidateFilter = createCandidateFilter();
 
         //Setup
         try {
@@ -72,8 +91,26 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
                     BufferedReader reader = new BufferedReader(new FileReader(endLineFile));
 
                     String yieldPoint = reader.readLine().split("=")[1];
+
+                    // Build the brute-force range exactly as before, then let
+                    // the candidate filter reorder it (filter-first, with
+                    // fallback to the rest of the range unchanged below --
+                    // see CandidateFilter's class comment for why this can
+                    // only change speed, never correctness).
+                    List<Integer> fullRange1 = new ArrayList<>();
                     for (int ln = Integer.parseInt(endLoc.split("#")[1]);
                          ln < Integer.parseInt(yieldPoint.split("#")[1]); ln++) {
+                        fullRange1.add(ln);
+                    }
+                    File criticalFile1 = SourceFileResolver.resolve(firstLoc.split("#")[0], this.mavenProject);
+                    File candidateFile1 = SourceFileResolver.resolve(
+                            yieldPoint.split("#")[0], this.mavenProject);
+                    List<Integer> orderedCandidates1 = (criticalFile1 != null && candidateFile1 != null)
+                            ? candidateFilter.orderCandidates(criticalFile1,
+                                    Integer.parseInt(firstLoc.split("#")[1]), candidateFile1, fullRange1)
+                            : fullRange1; // couldn't resolve source files -- fall back to unfiltered
+
+                    for (int ln : orderedCandidates1) {
                         String yieldingPoint = yieldPoint.split("#")[0] + "#" + ln;
                         System.out.println("TRYING TO YIELD AT: " + yieldingPoint);
 
@@ -178,8 +215,22 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
                             String beginLine = reader.readLine();
                             int beginning = Integer.parseInt(beginLine.split("#")[1]); // Parse from file
 
-                            // Iterate upwards towards the start of the method, line-by-line
+                            // Iterate upwards towards the start of the method, line-by-line --
+                            // build the range as before, then reorder via the candidate filter
+                            // (same filter-first-with-fallback design as the other loop above).
+                            List<Integer> fullRange2 = new ArrayList<>();
                             for (int ln = Integer.parseInt(yieldPoint.split("#")[1]); ln >= beginning; ln--) {
+                                fullRange2.add(ln);
+                            }
+                            File criticalFile2 = SourceFileResolver.resolve(
+                                    firstLoc.split("#")[0], this.mavenProject);
+                            File candidateFile2 = SourceFileResolver.resolve(classN, this.mavenProject);
+                            List<Integer> orderedCandidates2 = (criticalFile2 != null && candidateFile2 != null)
+                                    ? candidateFilter.orderCandidates(criticalFile2,
+                                            Integer.parseInt(firstLoc.split("#")[1]), candidateFile2, fullRange2)
+                                    : fullRange2;
+
+                            for (int ln : orderedCandidates2) {
                                 String yieldingPoint = classN + "#" + ln;
                                 System.out.println("TRYING TO YIELD AT: " + yieldingPoint);
 
