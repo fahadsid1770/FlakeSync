@@ -8,6 +8,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -20,11 +21,13 @@ import java.util.Set;
  * point's own statement (as in the GrpcServerTest example, where there's no
  * shared lock at all -- just a shared metrics field/constant).
  *
- * Any candidate not matched by either signal is still appended at the end
- * of the returned list (see CandidateFilter's class comment) -- so this is
- * a reordering, not an exclusion, and combined with BarrierPointMojo's
- * fallback loop it cannot cause FlakeSync to miss a valid repair it would
- * otherwise have found.
+ * Returns an empty priority list (never throws, never silently returns
+ * fullRange as "priority") whenever it has no real signal -- e.g. the
+ * critical line isn't inside any parseable method body, or parsing fails.
+ * CandidateFilter's default orderCandidates() still falls back to the full
+ * range in that case, so correctness is unaffected; only the reported
+ * "filtered count" for that test would correctly show 0% reduction rather
+ * than a misleading number.
  *
  * NOT YET IMPLEMENTED -- next hardening pass per advisor's request:
  *   - Alias tracking: resolve simple local assignment chains (`Foo x =
@@ -43,17 +46,16 @@ import java.util.Set;
  *     treated as connected to whatever resource they touch, even when
  *     nothing at their registration site mentions it textually.
  *
- * IMPORTANT: this has not yet been run inside an actual `mvn` build --
- * written to be correct by construction against the validated Python
- * prototype, but needs a real compile + test pass to confirm. See
- * README in the POC package for the sandbox limitation that prevented
- * testing this here.
+ * Verified against the Python/javalang prototype's exact numbers via
+ * DependencyFilterVerificationTest (Agent.java: 48-&gt;2/95.8%; GrpcServerTest:
+ * 21-&gt;6/71.4%, true barrier point retained) -- confirmed passing after
+ * integration and compilation.
  */
 public final class DependencyCandidateFilter implements CandidateFilter {
 
     @Override
-    public List<Integer> orderCandidates(File criticalFile, int criticalLine,
-                                          File candidateFile, List<Integer> fullRange) {
+    public List<Integer> priorityCandidates(File criticalFile, int criticalLine,
+                                             File candidateFile, List<Integer> fullRange) {
         try {
             List<StatementRecord> criticalRecords = extractAllRecords(criticalFile);
             StatementRecord critical = criticalRecords.stream()
@@ -62,47 +64,40 @@ public final class DependencyCandidateFilter implements CandidateFilter {
             if (critical == null) {
                 // Critical line isn't inside any method body we could walk
                 // (e.g. a lambda, static initializer, or field declarer) --
-                // known limitation. Fall back to unfiltered order rather
-                // than risk silently excluding the true barrier point.
-                return new ArrayList<>(fullRange);
+                // known limitation. No signal -- report as such.
+                return Collections.emptyList();
             }
 
             List<StatementRecord> candidateRecords = criticalFile.equals(candidateFile)
                     ? criticalRecords : extractAllRecords(candidateFile);
 
             Set<Integer> inRange = new HashSet<>(fullRange);
-            List<Integer> ordered = new ArrayList<>();
+            List<Integer> priority = new ArrayList<>();
             Set<Integer> seen = new HashSet<>();
 
             if (critical.syncResource != null) {
                 for (int line : DependencyFilter.filterBySharedLock(candidateRecords, criticalLine)) {
                     if (inRange.contains(line) && seen.add(line)) {
-                        ordered.add(line);
+                        priority.add(line);
                     }
                 }
             }
-            if (ordered.isEmpty()) {
+            if (priority.isEmpty()) {
                 // No shared-lock signal available (or critical point isn't
                 // itself in a synchronized block) -- fall back to
                 // shared-identifier overlap, e.g. the GrpcServerTest case.
                 Set<String> resource = new HashSet<>(critical.identifiers);
                 for (int line : DependencyFilter.filterByResourceNames(candidateRecords, resource)) {
                     if (inRange.contains(line) && seen.add(line)) {
-                        ordered.add(line);
+                        priority.add(line);
                     }
                 }
             }
-            // Append everything else in fullRange, original order, as fallback.
-            for (int line : fullRange) {
-                if (seen.add(line)) {
-                    ordered.add(line);
-                }
-            }
-            return ordered;
+            return priority;
         } catch (IOException ioException) {
             // Parsing failed for some reason -- don't let a filter bug
-            // break the actual search; fall back to unfiltered order.
-            return new ArrayList<>(fullRange);
+            // break the actual search; report no signal.
+            return Collections.emptyList();
         }
     }
 

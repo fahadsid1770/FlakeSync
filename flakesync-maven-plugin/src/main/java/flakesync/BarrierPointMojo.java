@@ -6,6 +6,7 @@ import flakesync.common.Logger;
 import flakesync.filter.CandidateFilter;
 import flakesync.filter.DependencyCandidateFilter;
 import flakesync.filter.NoOpCandidateFilter;
+import flakesync.filter.ProximityCandidateFilter;
 import flakesync.filter.SourceFileResolver;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
@@ -36,14 +37,21 @@ import java.util.Scanner;
         requiresDependencyResolution = ResolutionScope.TEST)
 public class BarrierPointMojo extends FlakeSyncAbstractMojo {
 
-    // "dependency" (default) = our static filter; "none" = unfiltered baseline
-    // (Baseline A). "proximity" (Baseline B) is the next piece to add.
+    // "dependency" (default) = our static filter; "none" = unfiltered
+    // baseline (Baseline A); "proximity" = same-file line-distance-only
+    // baseline (Baseline B).
     @Parameter(property = "flakesync.filterMode", defaultValue = "dependency")
     private String filterMode;
+
+    @Parameter(property = "flakesync.proximityWindow", defaultValue = "15")
+    private int proximityWindow;
 
     private CandidateFilter createCandidateFilter() {
         if ("none".equalsIgnoreCase(filterMode)) {
             return new NoOpCandidateFilter();
+        }
+        if ("proximity".equalsIgnoreCase(filterMode)) {
+            return new ProximityCandidateFilter(proximityWindow);
         }
         return new DependencyCandidateFilter();
     }
@@ -109,6 +117,17 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
                             ? candidateFilter.orderCandidates(criticalFile1,
                                     Integer.parseInt(firstLoc.split("#")[1]), candidateFile1, fullRange1)
                             : fullRange1; // couldn't resolve source files -- fall back to unfiltered
+
+                    List<Integer> priorityCandidates1 = (criticalFile1 != null && candidateFile1 != null)
+                            ? candidateFilter.priorityCandidates(criticalFile1,
+                                    Integer.parseInt(firstLoc.split("#")[1]), candidateFile1, fullRange1)
+                            : Collections.emptyList();
+                    System.out.println("FLAKESYNC_FILTER_STATS mode=" + filterMode
+                            + " loop=sameFile"
+                            + " criticalLine=" + firstLoc.split("#")[1]
+                            + " fullRangeSize=" + fullRange1.size()
+                            + " prioritySize=" + priorityCandidates1.size()
+                            + " priorityLines=" + priorityCandidates1);
 
                     for (int ln : orderedCandidates1) {
                         String yieldingPoint = yieldPoint.split("#")[0] + "#" + ln;
@@ -229,6 +248,17 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
                                     ? candidateFilter.orderCandidates(criticalFile2,
                                             Integer.parseInt(firstLoc.split("#")[1]), candidateFile2, fullRange2)
                                     : fullRange2;
+
+                            List<Integer> priorityCandidates2 = (criticalFile2 != null && candidateFile2 != null)
+                                    ? candidateFilter.priorityCandidates(criticalFile2,
+                                            Integer.parseInt(firstLoc.split("#")[1]), candidateFile2, fullRange2)
+                                    : Collections.emptyList();
+                            System.out.println("FLAKESYNC_FILTER_STATS mode=" + filterMode
+                                    + " loop=crossFile"
+                                    + " criticalLine=" + firstLoc.split("#")[1]
+                                    + " fullRangeSize=" + fullRange2.size()
+                                    + " prioritySize=" + priorityCandidates2.size()
+                                    + " priorityLines=" + priorityCandidates2);
 
                             for (int ln : orderedCandidates2) {
                                 String yieldingPoint = classN + "#" + ln;
