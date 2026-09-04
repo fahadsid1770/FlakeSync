@@ -25,7 +25,7 @@ import static org.junit.Assert.assertTrue;
  * evidence the underlying filtering idea doesn't work, since the idea was
  * already validated independently in Python.
  *
- * Run with: mvn test -Dtest=DependencyFilterVerificationTest -pl flakesync-maven-plugin
+ * Run with:    mvn test -Dtest=DependencyFilterVerificationTest -pl flakesync-maven-plugin -Dsurefire.useFile=false
  */
 public class DependencyFilterVerificationTest {
 
