@@ -244,18 +244,33 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
                             File criticalFile2 = SourceFileResolver.resolve(
                                     firstLoc.split("#")[0], this.mavenProject);
                             File candidateFile2 = SourceFileResolver.resolve(classN, this.mavenProject);
-                            List<Integer> orderedCandidates2 = (criticalFile2 != null && candidateFile2 != null)
-                                    ? candidateFilter.orderCandidates(criticalFile2,
-                                            Integer.parseInt(firstLoc.split("#")[1]), candidateFile2, fullRange2)
+                            int criticalLineForIdentifiers = Integer.parseInt(firstLoc.split("#")[1]);
+
+                            File effectiveCriticalFile = criticalFile2;
+                            if (criticalFile2 == null && candidateFile2 != null) {
+                                effectiveCriticalFile = candidateFile2;
+                            }
+
+                            if (testName != null && testName.contains("#")) {
+                                String testClass = testName.split("#")[0];
+                                File testFile = SourceFileResolver.resolve(testClass, this.mavenProject);
+                                if (testFile != null) {
+                                    effectiveCriticalFile = testFile;
+                                    criticalLineForIdentifiers = Integer.parseInt(yieldPoint.split("#")[1]);
+                                }
+                            }
+                            List<Integer> orderedCandidates2 = (effectiveCriticalFile != null && candidateFile2 != null)
+                                    ? candidateFilter.orderCandidates(effectiveCriticalFile,
+                                            criticalLineForIdentifiers, candidateFile2, fullRange2)
                                     : fullRange2;
 
-                            List<Integer> priorityCandidates2 = (criticalFile2 != null && candidateFile2 != null)
-                                    ? candidateFilter.priorityCandidates(criticalFile2,
-                                            Integer.parseInt(firstLoc.split("#")[1]), candidateFile2, fullRange2)
+                            List<Integer> priorityCandidates2 = (effectiveCriticalFile != null && candidateFile2 != null)
+                                    ? candidateFilter.priorityCandidates(effectiveCriticalFile,
+                                            criticalLineForIdentifiers, candidateFile2, fullRange2)
                                     : Collections.emptyList();
                             System.out.println("FLAKESYNC_FILTER_STATS mode=" + filterMode
                                     + " loop=crossFile"
-                                    + " criticalLine=" + firstLoc.split("#")[1]
+                                    + " criticalLine=" + criticalLineForIdentifiers
                                     + " fullRangeSize=" + fullRange2.size()
                                     + " prioritySize=" + priorityCandidates2.size()
                                     + " priorityLines=" + priorityCandidates2);
