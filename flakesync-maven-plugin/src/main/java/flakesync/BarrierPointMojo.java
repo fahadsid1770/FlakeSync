@@ -247,16 +247,21 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
                             int criticalLineForIdentifiers = Integer.parseInt(firstLoc.split("#")[1]);
 
                             File effectiveCriticalFile = criticalFile2;
-                            if (criticalFile2 == null && candidateFile2 != null) {
-                                effectiveCriticalFile = candidateFile2;
-                            }
-
-                            if (testName != null && testName.contains("#")) {
-                                String testClass = testName.split("#")[0];
-                                File testFile = SourceFileResolver.resolve(testClass, this.mavenProject);
-                                if (testFile != null) {
-                                    effectiveCriticalFile = testFile;
+                            if (effectiveCriticalFile == null && candidateFile2 != null) {
+                                // Couldn't resolve the TRUE critical point's source file (e.g. it
+                                // lives in a different module or a dependency, outside this
+                                // module's own source roots) -- fall back to the test file itself
+                                // at the yield point's line rather than crashing. This is a
+                                // degraded signal (it loses the real critical-point resource
+                                // information), so it's logged explicitly for later inspection --
+                                // any subject that hits this should be reviewed by hand rather
+                                // than trusted at face value.
+                                effectiveCriticalFile = SourceFileResolver.resolve(
+                                        testName.split("#")[0], this.mavenProject);
+                                if (effectiveCriticalFile != null) {
                                     criticalLineForIdentifiers = Integer.parseInt(yieldPoint.split("#")[1]);
+                                    System.out.println("FLAKESYNC_FILTER_FALLBACK loop=crossFile "
+                                            + "reason=criticalFileUnresolved firstLoc=" + firstLoc);
                                 }
                             }
                             List<Integer> orderedCandidates2 = (effectiveCriticalFile != null && candidateFile2 != null)
