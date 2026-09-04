@@ -159,8 +159,11 @@ public final class DependencyFilter {
                 for (int i = before; i < records.size(); i++) {
                     records.get(i).identifiers.addAll(condIds);
                 }
-            } else if (stmt.isForStmt()) {
-                walkSingleOrBlock(stmt.asForStmt().getBody(), enclosingSync, records, sourceLines);
+            } else if (stmt.isForStmt() || stmt.isForEachStmt()) {
+                Statement body = stmt.isForStmt()
+                        ? stmt.asForStmt().getBody()
+                        : stmt.asForEachStmt().getBody();
+                walkSingleOrBlock(body, enclosingSync, records, sourceLines);
             } else if (stmt.isWhileStmt()) {
                 walkSingleOrBlock(stmt.asWhileStmt().getBody(), enclosingSync, records, sourceLines);
             } else {
