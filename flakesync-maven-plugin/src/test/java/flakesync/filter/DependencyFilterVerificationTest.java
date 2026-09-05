@@ -45,7 +45,7 @@ public class DependencyFilterVerificationTest {
         List<String> lines = Files.readAllLines(file.toPath());
 
         MethodDeclaration method = DependencyFilter.extractMethod(cu, "run", 280);
-        List<StatementRecord> records = DependencyFilter.extractStatementRecords(method, lines);
+        List<StatementRecord> records = DependencyFilter.extractStatementRecords(method, cu, lines);
 
         int criticalLine = 296;
         List<Integer> filtered = DependencyFilter.filterBySharedLock(records, criticalLine);
@@ -84,7 +84,7 @@ public class DependencyFilterVerificationTest {
         List<String> lines = Files.readAllLines(file.toPath());
 
         MethodDeclaration method = DependencyFilter.extractMethod(cu, "testGrpcExecutorPool", null);
-        List<StatementRecord> records = DependencyFilter.extractStatementRecords(method, lines);
+        List<StatementRecord> records = DependencyFilter.extractStatementRecords(method, cu, lines);
 
         Set<String> criticalResource = new HashSet<>(Arrays.asList(
                 "GRPC_SERVER_EXECUTOR_BLOCKING_QUEUE_SIZE_KEY", "grpcMetrics"));

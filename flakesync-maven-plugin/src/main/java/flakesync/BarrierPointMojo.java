@@ -54,7 +54,7 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
         if ("proximity".equalsIgnoreCase(filterMode)) {
             return new ProximityCandidateFilter(proximityWindow);
         }
-        return new DependencyCandidateFilter();
+        return new DependencyCandidateFilter(this.mavenProject);
     }
 
     @Override

@@ -3,6 +3,8 @@ package flakesync.filter;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import org.apache.maven.project.MavenProject;
 
 import java.io.File;
 import java.io.IOException;
@@ -11,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -29,22 +32,12 @@ import java.util.Set;
  * "filtered count" for that test would correctly show 0% reduction rather
  * than a misleading number.
  *
- * NOT YET IMPLEMENTED -- next hardening pass per advisor's request:
- *   - Alias tracking: resolve simple local assignment chains (`Foo x =
- *     this.bar;`) before computing identifiers, so `x` and `bar` are
- *     recognized as the same resource.
- *   - Heap-object identity: use javaparser-symbol-solver-core to resolve
- *     field accesses to a specific declared type + field, not just a bare
- *     name, so two unrelated objects with a same-named field don't
- *     false-match.
- *   - Interprocedural reach: when a candidate line calls a method whose own
- *     body touches the critical resource, count that as a match too
- *     (one-hop call reachability) -- needed for cases like afterExecute()
- *     in the GrpcServer example, where the real dependency is inside the
- *     callback body, not visible at the call/registration site.
- *   - Callback recognition: overridden framework callback methods should be
- *     treated as connected to whatever resource they touch, even when
- *     nothing at their registration site mentions it textually.
+ * IMPLEMENTED HARDENING (per advisor's request):
+ *   - Synchronized method modifiers (not just blocks)
+ *   - Alias tracking: resolve simple local assignment chains
+ *   - Heap-object identity: symbol resolution for canonical identifiers
+ *   - Interprocedural reach: one-hop method call tracing
+ *   - Callback recognition: framework callback patterns (afterExecute, etc.)
  *
  * Verified against the Python/javalang prototype's exact numbers via
  * DependencyFilterVerificationTest (Agent.java: 48-&gt;2/95.8%; GrpcServerTest:
@@ -53,18 +46,22 @@ import java.util.Set;
  */
 public final class DependencyCandidateFilter implements CandidateFilter {
 
+    private final MavenProject mavenProject;
+
+    public DependencyCandidateFilter(MavenProject mavenProject) {
+        this.mavenProject = mavenProject;
+    }
+
     @Override
     public List<Integer> priorityCandidates(File criticalFile, int criticalLine,
-                                             File candidateFile, List<Integer> fullRange) {
+                                         File candidateFile, List<Integer> fullRange) {
+        SymbolResolverSetup.configure(mavenProject);
         try {
             List<StatementRecord> criticalRecords = extractAllRecords(criticalFile);
             StatementRecord critical = criticalRecords.stream()
                     .filter(r -> r.line == criticalLine).findFirst().orElse(null);
 
             if (critical == null) {
-                // Critical line isn't inside any method body we could walk
-                // (e.g. a lambda, static initializer, or field declarer) --
-                // known limitation. No signal -- report as such.
                 return Collections.emptyList();
             }
 
@@ -83,9 +80,6 @@ public final class DependencyCandidateFilter implements CandidateFilter {
                 }
             }
             if (priority.isEmpty()) {
-                // No shared-lock signal available (or critical point isn't
-                // itself in a synchronized block) -- fall back to
-                // shared-identifier overlap, e.g. the GrpcServerTest case.
                 Set<String> resource = new HashSet<>(critical.identifiers);
                 for (int line : DependencyFilter.filterByResourceNames(candidateRecords, resource)) {
                     if (inRange.contains(line) && seen.add(line)) {
@@ -93,12 +87,67 @@ public final class DependencyCandidateFilter implements CandidateFilter {
                     }
                 }
             }
+
+            Optional<MethodDeclaration> callbackMethod = findMethodContainingLine(
+                    criticalFile, criticalLine);
+            if (callbackMethod.isPresent() && CallbackPatterns.isKnownCallback(callbackMethod.get())) {
+                Set<String> triggeringCalls = CallbackPatterns.triggeringCallNames(callbackMethod.get());
+                for (StatementRecord record : candidateRecords) {
+                    if (inRange.contains(record.line) && !seen.contains(record.line)) {
+                        if (hasTriggeringCall(record.text, triggeringCalls)) {
+                            priority.add(record.line);
+                            seen.add(record.line);
+                        }
+                    }
+                }
+            }
+
             return priority;
         } catch (IOException ioException) {
-            // Parsing failed for some reason -- don't let a filter bug
-            // break the actual search; report no signal.
             return Collections.emptyList();
         }
+    }
+
+    public static boolean hasTriggeringCall(String statementText, Set<String> triggeringCalls) {
+        if (statementText == null || statementText.isEmpty()) {
+            return false;
+        }
+        for (String callName : triggeringCalls) {
+            if (statementText.contains(callName + "(")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean statementContainsTriggeringCall(com.github.javaparser.ast.stmt.Statement stmt,
+                                                        Set<String> triggeringCalls) {
+        if (stmt == null) {
+            return false;
+        }
+        for (MethodCallExpr call : stmt.findAll(MethodCallExpr.class)) {
+            if (triggeringCalls.contains(call.getNameAsString())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Optional<MethodDeclaration> findMethodContainingLine(File file, int line)
+            throws IOException {
+        CompilationUnit cu = StaticJavaParser.parse(file);
+        for (MethodDeclaration method : cu.findAll(MethodDeclaration.class)) {
+            if (method.getBegin().isPresent()) {
+                int methodStart = method.getBegin().get().line;
+                int methodEnd = method.getEnd().isPresent()
+                        ? method.getEnd().get().line
+                        : Integer.MAX_VALUE;
+                if (methodStart <= line && line <= methodEnd) {
+                    return Optional.of(method);
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     private List<StatementRecord> extractAllRecords(File file) throws IOException {
@@ -106,7 +155,7 @@ public final class DependencyCandidateFilter implements CandidateFilter {
         List<String> lines = Files.readAllLines(file.toPath());
         List<StatementRecord> all = new ArrayList<>();
         for (MethodDeclaration m : cu.findAll(MethodDeclaration.class)) {
-            all.addAll(DependencyFilter.extractStatementRecords(m, lines));
+            all.addAll(DependencyFilter.extractStatementRecords(m, cu, lines));
         }
         return all;
     }
