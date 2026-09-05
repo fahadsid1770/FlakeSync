@@ -70,7 +70,14 @@ REPEAT_RUNS="${2:-10}"
 MODES=("none" "proximity" "dependency")
 
 summaryCsv="$results/FilterComparison.csv"
-echo "slug,sha,test_name,filter_mode,full_range_size,filtered_size,candidate_reduction_pct,barrier_point_retained,repair_success,repeated_pass_count,repeated_total_runs,repeated_run_validated,barrier_search_time_sec,total_time_sec,shared_phase_time_sec" > "$summaryCsv"
+# Write the header only the first time the CSV is created. Subsequent
+# invocations (or re-runs after an interruption) must APPEND, otherwise a
+# mid-sweep restart will silently truncate every previously recorded
+# (subject, mode) result. Also gives the user a clean way to wipe results by
+# just deleting the file.
+if [[ ! -f "$summaryCsv" ]]; then
+    echo "slug,sha,test_name,filter_mode,full_range_size,priority_size,candidate_reduction_pct,barrier_point_retained,found_via_priority,repair_success,repeated_pass_count,repeated_total_runs,repeated_run_validated,barrier_search_time_sec,total_time_sec,shared_phase_time_sec,critical_points_attempted,total_candidates_all_attempts" > "$summaryCsv"
+fi
 
 while IFS= read -r csvline; do
     if [[ "$csvline" =~ ^# ]] || [[ -z "$csvline" ]]; then
@@ -99,6 +106,7 @@ while IFS= read -r csvline; do
     testNameDots=${testName//#/.}
     moduleDir="$workdir/$module"
     barrierResultsFile="$moduleDir/.flakesync/Results-BarrierSearch/${testNameDots}-BarrierPoints.csv"
+    critPointsFile="$moduleDir/.flakesync/Results-CritSearch/${testNameDots}-CriticalPoints.csv"
     patchDir="$moduleDir/.flakesync/patch"
 
     pushd "$workdir" > /dev/null
@@ -114,9 +122,23 @@ while IFS= read -r csvline; do
     mvn edu.utexas.ece:flakesync-maven-plugin:1.0-SNAPSHOT:deltadebug \
         -Dflakesync.testName="${testName}" -pl "$module" \
         > "$logs/${subjectTag}_deltadebug.log" 2>&1
-    mvn edu.utexas.ece:flakesync-maven-plugin:1.0-SNAPSHOT:critsearch \
-        -Dflakesync.testName="${testName}" -pl "$module" \
-        > "$logs/${subjectTag}_critsearch.log" 2>&1
+
+    # critsearch is itself a DYNAMIC, delay-injection-based search, so it can
+    # legitimately be nondeterministic run-to-run (especially under the extra
+    # system load of a full sweep vs. running one subject in isolation) --
+    # retry a few times if it comes back with no critical point, rather than
+    # silently recording a false "no repair possible" for this subject.
+    CRITSEARCH_RETRIES="${CRITSEARCH_RETRIES:-3}"
+    for attempt in $(seq 1 "$CRITSEARCH_RETRIES"); do
+        mvn edu.utexas.ece:flakesync-maven-plugin:1.0-SNAPSHOT:critsearch \
+            -Dflakesync.testName="${testName}" -pl "$module" \
+            > "$logs/${subjectTag}_critsearch_attempt${attempt}.log" 2>&1
+        cp "$logs/${subjectTag}_critsearch_attempt${attempt}.log" "$logs/${subjectTag}_critsearch.log"
+        if [[ -f "$critPointsFile" ]] && grep -vE '^#|^$' "$critPointsFile" | grep -q .; then
+            break
+        fi
+        echo "critsearch attempt $attempt found no critical point for $testName -- retrying"
+    done
     sharedEnd=$(date +%s.%N)
     sharedTime=$(echo "scale=2; $sharedEnd - $sharedStart" | bc)
     echo "Shared-phase time: ${sharedTime}s"
@@ -138,17 +160,42 @@ while IFS= read -r csvline; do
 
         statsCount=$(grep -c "FLAKESYNC_FILTER_STATS" "$bpLog" || true)
         if [[ "$statsCount" -gt 1 ]]; then
-            echo "WARNING: $statsCount FLAKESYNC_FILTER_STATS lines in $bpLog (multiple critical points tried) -- review manually"
+            echo "NOTE: $statsCount critical points were attempted in $bpLog -- using the LAST one" \
+                 "(the one actually in progress when the search stopped, whether it succeeded or the search was exhausted)"
         fi
-        statsLine=$(grep -m1 "FLAKESYNC_FILTER_STATS" "$bpLog" || true)
+        # Use the LAST occurrence, not the first: BarrierPointMojo's outer loop tries each
+        # critical point from CriticalPoints.csv in turn, and stops as soon as one search
+        # succeeds -- so the last FLAKESYNC_FILTER_STATS line corresponds to the attempt
+        # that actually mattered. Taking the first (an earlier, abandoned attempt) was
+        # confirmed to give a wrong picture on at least one real subject.
+        statsLine=$(grep "FLAKESYNC_FILTER_STATS" "$bpLog" | tail -1 || true)
         fullRangeSize=$(echo "$statsLine" | grep -oE "fullRangeSize=[0-9]+" | cut -d'=' -f2)
         filteredSize=$(echo "$statsLine" | grep -oE "prioritySize=[0-9]+" | cut -d'=' -f2)
         priorityLines=$(echo "$statsLine" | grep -oE "priorityLines=\[[^]]*\]" | sed -E 's/priorityLines=\[(.*)\]/\1/' | tr -d ' ')
         fullRangeSize=${fullRangeSize:-0}
         filteredSize=${filteredSize:-0}
 
+        # Diagnostic-only: total candidates examined across ALL attempted critical points,
+        # for understanding cases where runtime doesn't track the reported reduction %
+        # (a subject that tries several critical points can do much more total work than
+        # full_range_size alone suggests).
+        totalCandidatesAllAttempts=0
+        while IFS= read -r attemptLine; do
+            v=$(echo "$attemptLine" | grep -oE "fullRangeSize=[0-9]+" | cut -d'=' -f2)
+            totalCandidatesAllAttempts=$((totalCandidatesAllAttempts + ${v:-0}))
+        done < <(grep "FLAKESYNC_FILTER_STATS" "$bpLog" || true)
+
         if [[ "$fullRangeSize" -gt 0 ]]; then
-            reductionPct=$(echo "scale=4; 100 * (1 - $filteredSize / $fullRangeSize)" | bc)
+            if [[ "$filteredSize" -eq 0 ]]; then
+                # Empty priority set == filter had NO signal (e.g. cross-file
+                # proximity, or unparseable source). The search fell back to the
+                # full unfiltered range, so real reduction is 0, not 100 -- the
+                # naive formula would misreport "reduced everything" when in fact
+                # it reduced nothing.
+                reductionPct="0"
+            else
+                reductionPct=$(echo "scale=4; 100 * (1 - $filteredSize / $fullRangeSize)" | bc)
+            fi
         else
             reductionPct="NA"
         fi
@@ -177,6 +224,14 @@ while IFS= read -r csvline; do
             else
                 barrierPointRetained="no"
             fi
+        fi
+
+        # Parse found_via_priority from the FLAKESYNC_BARRIER_FOUND log line
+        # (the barrier point can be found via priority OR via fallback, even if priorityLines contained the line)
+        foundViaPriority="n/a"
+        barrierFoundLine=$(grep "FLAKESYNC_BARRIER_FOUND" "$bpLog" | tail -1 || true)
+        if [[ -n "$barrierFoundLine" ]]; then
+            foundViaPriority=$(echo "$barrierFoundLine" | grep -oE "foundViaPriority=(true|false)" | cut -d'=' -f2)
         fi
 
         # ---- Patch phase (self-reverting -- see header comment) ----
@@ -229,9 +284,9 @@ while IFS= read -r csvline; do
 
         totalTime=$(echo "scale=2; $sharedTime + $barrierSearchTime + $patchTime" | bc)
 
-        echo "$slug,$sha,$testName,$mode,$fullRangeSize,$filteredSize,$reductionPct,$barrierPointRetained,$repairSuccess,$repeatedPassCount,$repeatedTotal,$repeatedRunValidated,$barrierSearchTime,$totalTime,$sharedTime" >> "$summaryCsv"
+        echo "$slug,$sha,$testName,$mode,$fullRangeSize,$filteredSize,$reductionPct,$barrierPointRetained,$foundViaPriority,$repairSuccess,$repeatedPassCount,$repeatedTotal,$repeatedRunValidated,$barrierSearchTime,$totalTime,$sharedTime,$statsCount,$totalCandidatesAllAttempts" >> "$summaryCsv"
 
-        echo "RESULT mode=$mode fullRange=$fullRangeSize filtered=$filteredSize reduction=${reductionPct}% retained=$barrierPointRetained repairSuccess=$repairSuccess validated=$repeatedRunValidated ($repeatedPassCount/$repeatedTotal) barrierSearchTime=${barrierSearchTime}s totalTime=${totalTime}s"
+        echo "RESULT mode=$mode fullRange=$fullRangeSize filtered=$filteredSize reduction=${reductionPct}% retained=$barrierPointRetained foundViaPriority=$foundViaPriority repairSuccess=$repairSuccess validated=$repeatedRunValidated ($repeatedPassCount/$repeatedTotal) barrierSearchTime=${barrierSearchTime}s totalTime=${totalTime}s"
     done
 
     popd > /dev/null

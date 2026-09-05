@@ -9,4 +9,6 @@ target/
 *.iml
 .flakesync/
 docs/
+.commandcode/
 results/
+.kilo/

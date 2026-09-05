@@ -23,6 +23,12 @@ public final class SourceFileResolver {
 
     public static File resolve(String className, MavenProject mavenProject) {
         String normalized = className.replace('/', '.');
+        // Inner/nested classes (Foo$Bar) live in their outer class's source
+        // file, so strip the nested-class suffix before mapping to a path.
+        int dollar = normalized.indexOf('$');
+        if (dollar >= 0) {
+            normalized = normalized.substring(0, dollar);
+        }
         String relativePath = normalized.replace('.', File.separatorChar) + ".java";
 
         List<String> roots = new ArrayList<>();

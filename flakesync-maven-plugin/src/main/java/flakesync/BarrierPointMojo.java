@@ -31,6 +31,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.Set;
 
 
 @Mojo(name = "barrierpointsearch", defaultPhase = LifecyclePhase.TEST,
@@ -69,7 +70,7 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
             FileWriter barrierResults = new FileWriter(barrierResFile);
             BufferedWriter bw = new BufferedWriter(barrierResults);
 
-            bw.write("#Test-Name,Boundary-Point,Barrier-Point,Threshold");
+            bw.write("#Test-Name,Boundary-Point,Barrier-Point,Threshold,FoundViaPriority");
             bw.newLine();
             bw.flush();
 
@@ -129,6 +130,7 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
                             + " prioritySize=" + priorityCandidates1.size()
                             + " priorityLines=" + priorityCandidates1);
 
+                    Set<Integer> prioritySet = new HashSet<>(priorityCandidates1);
                     for (int ln : orderedCandidates1) {
                         String yieldingPoint = yieldPoint.split("#")[0] + "#" + ln;
                         System.out.println("TRYING TO YIELD AT: " + yieldingPoint);
@@ -145,7 +147,10 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
 
                         // If the test now passes, and it was valid, add this point as the barrier point
                         if (!fail && checkValidPass()) {
-                            addBarrierPointToResults(bw, line, yieldingPoint, 1);
+                            boolean foundViaPriority = prioritySet.contains(ln);
+                            System.out.println("FLAKESYNC_BARRIER_FOUND line=" + ln
+                                    + " foundViaPriority=" + foundViaPriority);
+                            addBarrierPointToResults(bw, line, yieldingPoint, 1, foundViaPriority);
                             break;
                         } else {
                             // If test still fails, maybe critical point needs to execute more often
@@ -175,7 +180,10 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
 
                             if (!fail && checkValidPass()) {
                                 // If test passed, barrier point worked, and add to results file
-                                addBarrierPointToResults(bw, line, yieldingPoint, numExecutions);
+                                boolean foundViaPriority = prioritySet.contains(ln);
+                                System.out.println("FLAKESYNC_BARRIER_FOUND line=" + ln
+                                        + " foundViaPriority=" + foundViaPriority);
+                                addBarrierPointToResults(bw, line, yieldingPoint, numExecutions, foundViaPriority);
                                 break;
                             }
                         }
@@ -195,7 +203,12 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
                     File stackTraceFile = findSTFile(directory);
                     if (stackTraceFile == null) {
                         System.out.println("It appears that the stacktrace does not exist");
-                        return;
+                        // Skip this critical point and move on to the next one in
+                        // CriticalPoints.csv. A bare `return` here used to exit the
+                        // whole mojo, silently dropping any remaining critical points
+                        // and risking stale BarrierPoints.csv reads downstream.
+                        line = br.readLine();
+                        continue;
                     }
 
                     // Parse the stack trace
@@ -280,6 +293,7 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
                                     + " prioritySize=" + priorityCandidates2.size()
                                     + " priorityLines=" + priorityCandidates2);
 
+                            Set<Integer> prioritySet2 = new HashSet<>(priorityCandidates2);
                             for (int ln : orderedCandidates2) {
                                 String yieldingPoint = classN + "#" + ln;
                                 System.out.println("TRYING TO YIELD AT: " + yieldingPoint);
@@ -295,7 +309,10 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
 
                                 // If the test now passes and it was valid, add this point as the barrier point
                                 if (!fail && checkValidPass()) {
-                                    addBarrierPointToResults(bw, line, yieldingPoint, 1);
+                                    boolean foundViaPriority = prioritySet2.contains(ln);
+                                    System.out.println("FLAKESYNC_BARRIER_FOUND line=" + ln
+                                            + " foundViaPriority=" + foundViaPriority);
+                                    addBarrierPointToResults(bw, line, yieldingPoint, 1, foundViaPriority);
                                     break;
                                 } else {
                                     // If test still fails, maybe critical point needs to execute more often
@@ -325,7 +342,10 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
 
                                     if (!fail && checkValidPass()) {
                                         // If test passed, barrier point worked, and add to results file
-                                        addBarrierPointToResults(bw, line, yieldingPoint, numExecutions);
+                                        boolean foundViaPriority = prioritySet2.contains(ln);
+                                        System.out.println("FLAKESYNC_BARRIER_FOUND line=" + ln
+                                                + " foundViaPriority=" + foundViaPriority);
+                                        addBarrierPointToResults(bw, line, yieldingPoint, numExecutions, foundViaPriority);
                                         break;
                                     }
                                 }
@@ -393,9 +413,9 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
         return false;
     }
 
-    private void addBarrierPointToResults(BufferedWriter bw, String bop, String bap, int threshold)
-            throws IOException {
-        bw.write(this.testName + "," + bop + "," + bap + "," + threshold);
+    private void addBarrierPointToResults(BufferedWriter bw, String bop, String bap, int threshold,
+                                          boolean foundViaPriority) throws IOException {
+        bw.write(this.testName + "," + bop + "," + bap + "," + threshold + "," + foundViaPriority);
         bw.newLine();
         bw.flush();
     }
