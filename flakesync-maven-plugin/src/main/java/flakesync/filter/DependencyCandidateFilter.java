@@ -55,50 +55,73 @@ public final class DependencyCandidateFilter implements CandidateFilter {
     @Override
     public List<Integer> priorityCandidates(File criticalFile, int criticalLine,
                                          File candidateFile, List<Integer> fullRange) {
+        long start = System.currentTimeMillis();
         SymbolResolverSetup.configure(mavenProject);
+        System.out.println("FLAKESYNC_TIMING_BREAKDOWN phase=symbolResolverSetup ms="
+                + (System.currentTimeMillis() - start));
+
         try {
+            start = System.currentTimeMillis();
             List<StatementRecord> criticalRecords = extractAllRecords(criticalFile);
+            System.out.println("FLAKESYNC_TIMING_BREAKDOWN phase=extractCriticalRecords ms="
+                    + (System.currentTimeMillis() - start));
+
             StatementRecord critical = criticalRecords.stream()
-                    .filter(r -> r.line == criticalLine).findFirst().orElse(null);
+                    .filter(r -> r.line <= criticalLine && criticalLine <= r.endLine)
+                    .findFirst().orElse(null);
 
             if (critical == null) {
                 return Collections.emptyList();
             }
 
+            start = System.currentTimeMillis();
             List<StatementRecord> candidateRecords = criticalFile.equals(candidateFile)
                     ? criticalRecords : extractAllRecords(candidateFile);
+            System.out.println("FLAKESYNC_TIMING_BREAKDOWN phase=extractCandidateRecords ms="
+                    + (System.currentTimeMillis() - start));
 
             Set<Integer> inRange = new HashSet<>(fullRange);
-            List<Integer> priority = new ArrayList<>();
-            Set<Integer> seen = new HashSet<>();
+
+            Set<Integer> matchedLines = new HashSet<>();
 
             if (critical.syncResource != null) {
-                for (int line : DependencyFilter.filterBySharedLock(candidateRecords, criticalLine)) {
-                    if (inRange.contains(line) && seen.add(line)) {
-                        priority.add(line);
-                    }
-                }
+                start = System.currentTimeMillis();
+                matchedLines.addAll(DependencyFilter.filterBySharedLock(
+                        candidateRecords, criticalLine));
+                System.out.println("FLAKESYNC_TIMING_BREAKDOWN phase=filterBySharedLock ms="
+                        + (System.currentTimeMillis() - start));
             }
-            if (priority.isEmpty()) {
+            if (matchedLines.isEmpty()) {
+                start = System.currentTimeMillis();
                 Set<String> resource = new HashSet<>(critical.identifiers);
-                for (int line : DependencyFilter.filterByResourceNames(candidateRecords, resource)) {
-                    if (inRange.contains(line) && seen.add(line)) {
-                        priority.add(line);
-                    }
-                }
+                matchedLines.addAll(DependencyFilter.filterByResourceNames(
+                        candidateRecords, resource));
+                System.out.println("FLAKESYNC_TIMING_BREAKDOWN phase=filterByResourceNames ms="
+                        + (System.currentTimeMillis() - start));
             }
 
+            start = System.currentTimeMillis();
             Optional<MethodDeclaration> callbackMethod = findMethodContainingLine(
                     criticalFile, criticalLine);
-            if (callbackMethod.isPresent() && CallbackPatterns.isKnownCallback(callbackMethod.get())) {
-                Set<String> triggeringCalls = CallbackPatterns.triggeringCallNames(callbackMethod.get());
+            if (callbackMethod.isPresent()
+                    && CallbackPatterns.isKnownCallback(callbackMethod.get())) {
+                Set<String> triggeringCalls =
+                        CallbackPatterns.triggeringCallNames(callbackMethod.get());
                 for (StatementRecord record : candidateRecords) {
-                    if (inRange.contains(record.line) && !seen.contains(record.line)) {
-                        if (hasTriggeringCall(record.text, triggeringCalls)) {
-                            priority.add(record.line);
-                            seen.add(record.line);
+                    if (hasTriggeringCall(record.text, triggeringCalls)) {
+                        for (int ln = record.line; ln <= record.endLine; ln++) {
+                            matchedLines.add(ln);
                         }
                     }
+                }
+            }
+            System.out.println("FLAKESYNC_TIMING_BREAKDOWN phase=callbackPattern ms="
+                    + (System.currentTimeMillis() - start));
+
+            List<Integer> priority = new ArrayList<>();
+            for (int ln : fullRange) {
+                if (matchedLines.contains(ln) && priority.size() < fullRange.size()) {
+                    priority.add(ln);
                 }
             }
 
