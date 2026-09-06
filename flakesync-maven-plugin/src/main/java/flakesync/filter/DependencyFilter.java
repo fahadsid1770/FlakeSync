@@ -114,14 +114,17 @@ public final class DependencyFilter {
      * reduction, correctly excluding an unrelated synchronized block). */
     public static List<Integer> filterBySharedLock(List<StatementRecord> records, int criticalLine) {
         StatementRecord critical = records.stream()
-                .filter(r -> r.line == criticalLine).findFirst().orElse(null);
+                .filter(r -> r.line <= criticalLine && criticalLine <= r.endLine)
+                .findFirst().orElse(null);
         List<Integer> result = new ArrayList<>();
         if (critical == null || critical.syncResource == null) {
             return result; // no lock context to key off -- caller should try the other filter
         }
         for (StatementRecord r : records) {
             if (critical.syncResource.equals(r.syncResource)) {
-                result.add(r.line);
+                for (int l = r.line; l <= r.endLine; l++) {
+                    result.add(l);
+                }
             }
         }
         return result;
@@ -137,7 +140,9 @@ public final class DependencyFilter {
         List<Integer> result = new ArrayList<>();
         for (StatementRecord r : records) {
             if (!Collections.disjoint(r.identifiers, resourceNames)) {
-                result.add(r.line);
+                for (int l = r.line; l <= r.endLine; l++) {
+                    result.add(l);
+                }
             }
         }
         return result;
@@ -266,7 +271,8 @@ public final class DependencyFilter {
                 expanded.addAll(transitive);
                 String text = (line - 1 >= 0 && line - 1 < sourceLines.size())
                         ? sourceLines.get(line - 1).trim() : "";
-                records.add(new StatementRecord(line, expanded, enclosingSync, text));
+                int endLine = stmt.getEnd().map(p -> p.line).orElse(line);
+                records.add(new StatementRecord(line, endLine, expanded, enclosingSync, text));
             }
         }
     }

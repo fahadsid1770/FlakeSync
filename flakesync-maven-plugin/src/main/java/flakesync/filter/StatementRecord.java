@@ -9,7 +9,9 @@ import java.util.Set;
  * {@link DependencyFilter} to decide whether a candidate barrier-point line
  * is worth trying dynamically.
  *
- * - line: 1-based source line number of this statement.
+ * - line: 1-based source line number of this statement's start.
+ * - endLine: 1-based source line number of this statement's end (may equal
+ *   line for single-line statements).
  * - identifiers: variable/field/method-call names referenced by this
  *   statement (including anything folded in from an enclosing branch
  *   condition — see DependencyFilter for details).
@@ -22,12 +24,15 @@ import java.util.Set;
  */
 public final class StatementRecord {
     public final int line;
+    public final int endLine;
     public final Set<String> identifiers;
     public final String syncResource; // nullable
     public final String text;
 
-    public StatementRecord(int line, Set<String> identifiers, String syncResource, String text) {
+    public StatementRecord(int line, int endLine, Set<String> identifiers,
+                          String syncResource, String text) {
         this.line = line;
+        this.endLine = endLine;
         this.identifiers = identifiers == null
                 ? Collections.emptySet() : new HashSet<>(identifiers);
         this.syncResource = syncResource;
@@ -36,6 +41,6 @@ public final class StatementRecord {
 
     @Override
     public String toString() {
-        return "line=" + line + " sync=" + syncResource + " ids=" + identifiers;
+        return "line=" + line + "-" + endLine + " sync=" + syncResource + " ids=" + identifiers;
     }
 }
