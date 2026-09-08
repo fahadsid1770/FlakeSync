@@ -19,30 +19,17 @@ import java.util.Set;
 /**
  * The real filter: orders candidates by static dependency on the critical
  * point, using DependencyFilter. Tries the shared-lock signal first (if the
- * critical point sits in a synchronized block, as in the Agent.java
- * example), then falls back to shared-identifier overlap with the critical
- * point's own statement (as in the GrpcServerTest example, where there's no
- * shared lock at all -- just a shared metrics field/constant).
+ * critical point sits in a synchronized block), then falls back to
+ * shared-identifier overlap with the critical point's statement.
  *
  * Returns an empty priority list (never throws, never silently returns
  * fullRange as "priority") whenever it has no real signal -- e.g. the
  * critical line isn't inside any parseable method body, or parsing fails.
  * CandidateFilter's default orderCandidates() still falls back to the full
- * range in that case, so correctness is unaffected; only the reported
- * "filtered count" for that test would correctly show 0% reduction rather
- * than a misleading number.
+ * range in that case, so correctness is unaffected.
  *
- * IMPLEMENTED HARDENING (per advisor's request):
- *   - Synchronized method modifiers (not just blocks)
- *   - Alias tracking: resolve simple local assignment chains
- *   - Heap-object identity: symbol resolution for canonical identifiers
- *   - Interprocedural reach: one-hop method call tracing
- *   - Callback recognition: framework callback patterns (afterExecute, etc.)
- *
- * Verified against the Python/javalang prototype's exact numbers via
- * DependencyFilterVerificationTest (Agent.java: 48-&gt;2/95.8%; GrpcServerTest:
- * 21-&gt;6/71.4%, true barrier point retained) -- confirmed passing after
- * integration and compilation.
+ * Verified against the Python/javalang prototype via
+ * DependencyFilterVerificationTest.
  */
 public final class DependencyCandidateFilter implements CandidateFilter {
 

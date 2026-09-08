@@ -11,10 +11,13 @@ import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.CatchClause;
+import com.github.javaparser.ast.stmt.ForEachStmt;
+import com.github.javaparser.ast.stmt.ForStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.SynchronizedStmt;
 import com.github.javaparser.ast.stmt.TryStmt;
+import com.github.javaparser.ast.stmt.WhileStmt;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,20 +31,9 @@ import java.util.stream.Collectors;
 /**
  * Static dependency filter for FlakeSync's barrier-point candidate search.
  *
- * This is a direct port of the Python/javalang prototype validated on two
- * real examples (FlakeSync's own Agent.java, and the real Apache Uniffle
- * GrpcServerTest ground truth) -- see RESULTS.md in the POC package for
- * those numbers. Nothing here has been run yet against this Maven module
- * (JavaParser can't be exercised from the sandbox this was written in --
- * no Maven Central access), so treat this as "should be correct by
- * construction, needs a real `mvn test` pass to confirm."
- *
- * HARDENING IMPLEMENTED:
- *   - Synchronized method modifiers (not just blocks)
- *   - Field aliases via local variable tracking
- *   - Symbol resolution for canonical identifiers (declaringType.fieldName)
- *   - Interprocedural reach via one-hop method call tracing
- *   - Callback pattern recognition for framework callbacks
+ * Supports synchronized methods/blocks, field aliases via local variable
+ * tracking, canonical identifiers from symbol resolution, one-hop method
+ * call tracing, and framework callback patterns.
  */
 public final class DependencyFilter {
 
@@ -109,9 +101,7 @@ public final class DependencyFilter {
 
     /** Filter candidates to those sharing the same synchronization-lock
      * resource as the critical point. Use when the critical point is itself
-     * inside a synchronized block -- the sharpest signal we have for
-     * lock/monitor-based concurrency bugs (validated on Agent.java: 95.8%
-     * reduction, correctly excluding an unrelated synchronized block). */
+     * inside a synchronized block. */
     public static List<Integer> filterBySharedLock(List<StatementRecord> records, int criticalLine) {
         StatementRecord critical = records.stream()
                 .filter(r -> r.line <= criticalLine && criticalLine <= r.endLine)
@@ -133,9 +123,7 @@ public final class DependencyFilter {
     /** Filter candidates to those referencing any of the given resource
      * names (e.g. a shared field or metric-key constant). Use when the
      * critical point and candidates are in different methods/files and
-     * there's no shared lock object to key off -- validated on the real
-     * GrpcServerTest example: 71.4% reduction, true barrier point
-     * retained. */
+     * there's no shared lock object to key off. */
     public static List<Integer> filterByResourceNames(List<StatementRecord> records, Set<String> resourceNames) {
         List<Integer> result = new ArrayList<>();
         for (StatementRecord r : records) {
@@ -150,11 +138,8 @@ public final class DependencyFilter {
 
     /**
      * Expands identifiers in a statement by tracing one-hop into called methods.
-     * This only traces calls that go through project source -- it will NOT catch
-     * cases where the real dependency runs through JDK/library internals (e.g.,
-     * executor.submit(task) internally invoking afterExecute() inside
-     * ThreadPoolExecutor happens through JDK bytecode this analysis cannot see).
-     * That specific case is handled separately by CallbackPatterns.
+     * Only traces calls that go through project source; calls into JDK/library
+     * internals are handled separately by CallbackPatterns.
      */
     public static Set<String> transitiveIdentifiers(Statement stmt, int maxDepth) {
         return transitiveIdentifiersWithCu(stmt, null, maxDepth);
@@ -195,8 +180,8 @@ public final class DependencyFilter {
                     }
                 }
             } catch (Exception ex) {
-                // Most method calls (JDK collections, logging, etc.) fail to resolve
-                // to an in-project AST -- this is the expected common case, not an error.
+                // Most method calls (JDK collections, logging, etc.) fail to
+                // resolve to an in-project AST; this is the expected case.
                 assert ex != null;
             }
         }
@@ -230,6 +215,11 @@ public final class DependencyFilter {
             if (stmt.isSynchronizedStmt()) {
                 SynchronizedStmt sync = stmt.asSynchronizedStmt();
                 String lockName = getSynchronizedLockName(sync, stmt);
+                Set<String> ids = identifiersIn(sync.getExpression());
+                Set<String> expanded = expandWithAliases(ids, aliasMap);
+                String text = (line - 1 >= 0 && line - 1 < sourceLines.size())
+                        ? sourceLines.get(line - 1).trim() : "";
+                records.add(new StatementRecord(line, line, expanded, lockName, text));
                 walk(sync.getBody().getStatements(), lockName, aliasMap, records,
                         sourceLines, enclosingCu);
             } else if (stmt.isTryStmt()) {
@@ -246,6 +236,10 @@ public final class DependencyFilter {
             } else if (stmt.isIfStmt()) {
                 IfStmt ifStmt = stmt.asIfStmt();
                 Set<String> condIds = identifiersIn(ifStmt.getCondition());
+                Set<String> expanded = expandWithAliases(condIds, aliasMap);
+                String text = (line - 1 >= 0 && line - 1 < sourceLines.size())
+                        ? sourceLines.get(line - 1).trim() : "";
+                records.add(new StatementRecord(line, line, expanded, enclosingSync, text));
                 int before = records.size();
                 walkSingleOrBlock(ifStmt.getThenStmt(), enclosingSync, aliasMap,
                         records, sourceLines, enclosingCu);
@@ -255,14 +249,44 @@ public final class DependencyFilter {
                 for (int i = before; i < records.size(); i++) {
                     records.get(i).identifiers.addAll(condIds);
                 }
-            } else if (stmt.isForStmt() || stmt.isForEachStmt()) {
-                Statement body = stmt.isForStmt()
-                        ? stmt.asForStmt().getBody()
-                        : stmt.asForEachStmt().getBody();
+            } else if (stmt.isForEachStmt()) {
+                ForEachStmt forEachStmt = stmt.asForEachStmt();
+                int headerLine = forEachStmt.getIterable().getBegin().map(p -> p.line).orElse(line);
+                Set<String> ids = identifiersIn(forEachStmt.getIterable());
+                Set<String> expanded = expandWithAliases(ids, aliasMap);
+                String text = (headerLine - 1 >= 0 && headerLine - 1 < sourceLines.size())
+                        ? sourceLines.get(headerLine - 1).trim() : "";
+                records.add(new StatementRecord(headerLine, headerLine, expanded, enclosingSync, text));
+                Statement body = forEachStmt.getBody();
+                walkSingleOrBlock(body, enclosingSync, aliasMap, records,
+                        sourceLines, enclosingCu);
+            } else if (stmt.isForStmt()) {
+                ForStmt forStmt = stmt.asForStmt();
+                Set<String> ids = new HashSet<>();
+                for (com.github.javaparser.ast.expr.Expression init : forStmt.getInitialization()) {
+                    ids.addAll(identifiersIn(init));
+                }
+                if (forStmt.getCompare().isPresent()) {
+                    ids.addAll(identifiersIn(forStmt.getCompare().get()));
+                }
+                for (com.github.javaparser.ast.expr.Expression update : forStmt.getUpdate()) {
+                    ids.addAll(identifiersIn(update));
+                }
+                Set<String> expanded = expandWithAliases(ids, aliasMap);
+                String text = (line - 1 >= 0 && line - 1 < sourceLines.size())
+                        ? sourceLines.get(line - 1).trim() : "";
+                records.add(new StatementRecord(line, line, expanded, enclosingSync, text));
+                Statement body = forStmt.getBody();
                 walkSingleOrBlock(body, enclosingSync, aliasMap, records,
                         sourceLines, enclosingCu);
             } else if (stmt.isWhileStmt()) {
-                walkSingleOrBlock(stmt.asWhileStmt().getBody(), enclosingSync,
+                WhileStmt whileStmt = stmt.asWhileStmt();
+                Set<String> ids = identifiersIn(whileStmt.getCondition());
+                Set<String> expanded = expandWithAliases(ids, aliasMap);
+                String text = (line - 1 >= 0 && line - 1 < sourceLines.size())
+                        ? sourceLines.get(line - 1).trim() : "";
+                records.add(new StatementRecord(line, line, expanded, enclosingSync, text));
+                walkSingleOrBlock(whileStmt.getBody(), enclosingSync,
                         aliasMap, records, sourceLines, enclosingCu);
             } else {
                 Set<String> ids = identifiersIn(stmt);

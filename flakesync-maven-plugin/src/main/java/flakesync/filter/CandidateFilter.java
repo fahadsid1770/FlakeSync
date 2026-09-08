@@ -12,20 +12,11 @@ import java.util.Set;
  * range that BarrierPointMojo would otherwise try in order.
  *
  * Implementations provide {@link #priorityCandidates}: the lines this
- * filter is confident about, in priority order. This is the number that
- * matters for reporting -- "filtered candidate count" in the results table
- * is priorityCandidates(...).size(), not the merged search order.
- *
- * {@link #orderCandidates} is a default method built on top of it: try the
- * priority candidates first, then fall back to whatever remains of
- * fullRange, in its original order, if nothing in the priority set
- * produces a valid passing repair. That fallback is what guarantees a
- * filter can only change SPEED, never correctness -- directly addressing
- * the advisor's remark that filtering should not risk missing a valid
- * repair. BarrierPointMojo only ever calls orderCandidates; the split
- * exists so harness/reporting code can call priorityCandidates directly to
- * get the "filtered count" number without re-deriving it from the merged
- * list.
+ * filter is confident about, in priority order. {@link #orderCandidates}
+ * is a default method built on top of it that tries priority candidates
+ * first, then falls back to the rest of fullRange in its original order.
+ * That fallback guarantees a filter can only change SPEED, never
+ * correctness.
  */
 public interface CandidateFilter {
 
@@ -36,13 +27,10 @@ public interface CandidateFilter {
      * @param criticalFile  file containing the critical point
      * @param criticalLine  1-based line number of the critical point
      * @param candidateFile file containing the candidate barrier-point range
-     * @param fullRange     the full brute-force candidate line numbers, in
-     *                      the order BarrierPointMojo would normally try them
+     * @param fullRange     the full brute-force candidate line numbers
      * @return the subset of fullRange this filter is confident about, in
      *         priority order. Return an empty list if the filter has no
-     *         useful signal for this case (e.g. couldn't resolve/parse a
-     *         file) -- that correctly reports as "0 filtered, no reduction"
-     *         rather than silently pretending to have filtered.
+     *         useful signal for this case.
      */
     List<Integer> priorityCandidates(File criticalFile, int criticalLine,
                                       File candidateFile, List<Integer> fullRange);

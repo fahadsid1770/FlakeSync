@@ -6,9 +6,9 @@ import java.util.List;
 
 /**
  * Baseline A for the evaluation: no filtering at all. Reports the entire
- * fullRange as "priority" (i.e. 0% reduction, everything tried up front in
- * original order) so BarrierPointMojo's search behaves byte-for-byte like
- * unmodified FlakeSync. Use `-Dflakesync.filterMode=none` to select this.
+ * fullRange as "priority" (0% reduction, everything tried up front in
+ * original order) so BarrierPointMojo behaves like unmodified FlakeSync.
+ * Select with `-Dflakesync.filterMode=none`.
  */
 public final class NoOpCandidateFilter implements CandidateFilter {
 

@@ -38,9 +38,8 @@ import java.util.Set;
         requiresDependencyResolution = ResolutionScope.TEST)
 public class BarrierPointMojo extends FlakeSyncAbstractMojo {
 
-    // "dependency" (default) = our static filter; "none" = unfiltered
-    // baseline (Baseline A); "proximity" = same-file line-distance-only
-    // baseline (Baseline B).
+    // "dependency" (default) = static filter; "none" = unfiltered baseline;
+    // "proximity" = same-file line-distance baseline.
     @Parameter(property = "flakesync.filterMode", defaultValue = "dependency")
     private String filterMode;
 
@@ -101,11 +100,9 @@ public class BarrierPointMojo extends FlakeSyncAbstractMojo {
 
                     String yieldPoint = reader.readLine().split("=")[1];
 
-                    // Build the brute-force range exactly as before, then let
-                    // the candidate filter reorder it (filter-first, with
-                    // fallback to the rest of the range unchanged below --
-                    // see CandidateFilter's class comment for why this can
-                    // only change speed, never correctness).
+                    // Build the brute-force range, then let the candidate
+                    // filter reorder it (priority first, with fallback to
+                    // the rest of the range unchanged).
                     List<Integer> fullRange1 = new ArrayList<>();
                     for (int ln = Integer.parseInt(endLoc.split("#")[1]);
                          ln < Integer.parseInt(yieldPoint.split("#")[1]); ln++) {

@@ -1,0 +1,20 @@
+--- /Users/fahad/Documents/Professors Task/Shanto Rahman/FlakeSync/testscripts/input/apache/incubator-uniffle/common/src/test/java/org/apache/uniffle/common/rpc/GrpcServerTest.java.orig	2026-09-08 21:23:43
++++ /Users/fahad/Documents/Professors Task/Shanto Rahman/FlakeSync/testscripts/input/apache/incubator-uniffle/common/src/test/java/org/apache/uniffle/common/rpc/GrpcServerTest.java	2026-09-08 21:23:43
+@@ -42,6 +42,7 @@
+ 
+   @Test
+   public void testGrpcExecutorPool() throws Exception {
++    org.apache.uniffle.common.rpc.GrpcServer.resetExecutions();
+     GRPCMetrics grpcMetrics = GRPCMetrics.getEmptyGRPCMetrics();
+     grpcMetrics.register(new CollectorRegistry(true));
+     GrpcServer.GrpcThreadPoolExecutor executor =
+@@ -73,6 +74,9 @@
+     double activeThreads =
+         grpcMetrics.getGaugeMap().get(GRPC_SERVER_EXECUTOR_ACTIVE_THREADS_KEY).get();
+     assertEquals(2, activeThreads);
++        while (org.apache.uniffle.common.rpc.GrpcServer.getExecutedStatus() < 1) {
++            Thread.yield();
++        }
+     double queueSize =
+         grpcMetrics.getGaugeMap().get(GRPC_SERVER_EXECUTOR_BLOCKING_QUEUE_SIZE_KEY).get();
+     assertEquals(1, queueSize);

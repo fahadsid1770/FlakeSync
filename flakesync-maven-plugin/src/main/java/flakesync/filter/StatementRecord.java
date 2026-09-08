@@ -8,26 +8,13 @@ import java.util.Set;
  * One statement's worth of static-dependency information, used by
  * {@link DependencyFilter} to decide whether a candidate barrier-point line
  * is worth trying dynamically.
- *
- * - line: 1-based source line number of this statement's start.
- * - endLine: 1-based source line number of this statement's end (may equal
- *   line for single-line statements).
- * - identifiers: variable/field/method-call names referenced by this
- *   statement (including anything folded in from an enclosing branch
- *   condition — see DependencyFilter for details).
- * - syncResource: if this statement sits inside a `synchronized (X)` block,
- *   this is a normalized string representation of X (the lock expression's
- *   own referenced identifiers, joined). Null if not inside any
- *   synchronized block.
- * - text: the raw source line, trimmed, kept only for human-readable
- *   debugging/logging output.
  */
 public final class StatementRecord {
-    public final int line;
-    public final int endLine;
-    public final Set<String> identifiers;
-    public final String syncResource; // nullable
-    public final String text;
+    public final int line;        // 1-based start line of the statement
+    public final int endLine;     // 1-based end line (may equal line)
+    public final Set<String> identifiers; // variable/field/method-call names referenced
+    public final String syncResource; // normalized lock expression, or null if not in a synchronized block
+    public final String text;     // raw source line, trimmed, for logging
 
     public StatementRecord(int line, int endLine, Set<String> identifiers,
                           String syncResource, String text) {

@@ -1,0 +1,2 @@
+#Test-Name,Boundary-Point,Barrier-Point,Threshold,FoundViaPriority
+org.apache.uniffle.common.rpc.GrpcServerTest#testGrpcExecutorPool,org/apache/uniffle/common/rpc/GrpcServer$GrpcThreadPoolExecutor#157-org/apache/uniffle/common/rpc/GrpcServer$GrpcThreadPoolExecutor#159[200],org.apache.uniffle.common.rpc.GrpcServerTest#77,1,true

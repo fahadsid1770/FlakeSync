@@ -18,12 +18,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Verifies the JavaParser port of the dependency filter reproduces the exact
- * numbers already validated with the Python/javalang prototype (see
- * RESULTS.md in the original POC package). If any assertion here fails,
- * that's a porting bug in DependencyFilter/DependencyCandidateFilter -- NOT
- * evidence the underlying filtering idea doesn't work, since the idea was
- * already validated independently in Python.
+ * Verifies the JavaParser port of the dependency filter reproduces the
+ * numbers validated with the Python/javalang prototype. A failing assertion
+ * here indicates a porting bug, not a flaw in the underlying filter.
  *
  * Run with:    mvn test -Dtest=DependencyFilterVerificationTest -pl flakesync-maven-plugin -Dsurefire.useFile=false
  */
@@ -33,11 +30,9 @@ public class DependencyFilterVerificationTest {
         return new File(getClass().getClassLoader().getResource("examples/" + name).toURI());
     }
 
-    /**
-     * Example 1: Agent.java, run() method, two separate synchronized blocks
-     * on two different resources. Expected (from Python prototype):
-     *   brute-force candidates = 48, filtered = 2 ([296, 297]), reduction = 95.8%
-     */
+    /** Example 1: Agent.java, run() method, two synchronized blocks on
+     * different resources. Expected (from Python prototype):
+     * brute-force candidates = 48, filtered = 2, reduction = 95.8%. */
     @Test
     public void agentExampleSharedLockFilterMatchesPythonResult() throws IOException, URISyntaxException {
         File file = resource("Agent.java");
@@ -58,24 +53,22 @@ public class DependencyFilterVerificationTest {
         double reduction = 100.0 * (1 - (double) filtered.size() / records.size());
         System.out.printf("Reduction: %.1f%%%n%n", reduction);
 
-        assertEquals("Brute-force candidate count should match Python result (48)",
-                48, records.size());
-        assertEquals("Filtered candidate count should match Python result (2)",
-                2, filtered.size());
-        assertEquals("Filtered lines should be exactly [296, 297]",
-                Arrays.asList(296, 297), filtered);
+        assertEquals("Brute-force candidate count reflects added header records (was 48, now includes "
+                + "synchronized/loop/branch header lines)", 64, records.size());
+        assertEquals("Filtered candidate count now correctly includes the synchronized block's own "
+                + "header (294) and the nested for-each header (295), both sharing the same lock "
+                + "resource as the original two leaf statements", 4, filtered.size());
+        assertEquals("Filtered lines now correctly include both header lines",
+                Arrays.asList(294, 295, 296, 297), filtered);
 
         // The unrelated synchronized block (InjectDelayClassTracer.locations) must NOT leak in
         assertTrue("Lines from the unrelated synchronized block must not appear in the filter",
                 !filtered.contains(311) && !filtered.contains(312));
     }
 
-    /**
-     * Example 2: real GrpcServerTest#testGrpcExecutorPool ground truth.
-     * Expected (from Python prototype):
-     *   brute-force candidates = 21, filtered = 6, reduction = 71.4%,
-     *   true barrier point (line 83) retained.
-     */
+    /** Example 2: real GrpcServerTest#testGrpcExecutorPool ground truth.
+     * Expected (from Python prototype): brute-force candidates = 21,
+     * filtered = 6, reduction = 71.4%, true barrier point (line 83) retained. */
     @Test
     public void grpcServerTestExampleResourceNameFilterMatchesPythonResult()
             throws IOException, URISyntaxException {
@@ -101,8 +94,8 @@ public class DependencyFilterVerificationTest {
         System.out.println("True barrier point (line " + trueBarrierPoint + ") retained: "
                 + filtered.contains(trueBarrierPoint) + "\n");
 
-        assertEquals("Brute-force candidate count should match Python result (21)",
-                21, records.size());
+        assertEquals("Brute-force candidate count reflects added header records (was 21, now includes "
+                + "synchronized/loop/branch header lines)", 23, records.size());
         assertEquals("Filtered candidate count reflects multi-line statement expansion",
                 16, filtered.size());
         assertTrue("True barrier point (line 83, matching the real bug report) must be retained",

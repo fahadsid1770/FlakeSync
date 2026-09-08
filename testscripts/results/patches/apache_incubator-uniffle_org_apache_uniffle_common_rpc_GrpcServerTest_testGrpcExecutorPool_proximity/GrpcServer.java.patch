@@ -1,0 +1,29 @@
+--- /Users/fahad/Documents/Professors Task/Shanto Rahman/FlakeSync/testscripts/input/apache/incubator-uniffle/common/src/main/java/org/apache/uniffle/common/rpc/GrpcServer.java.orig	2026-09-08 21:22:58
++++ /Users/fahad/Documents/Professors Task/Shanto Rahman/FlakeSync/testscripts/input/apache/incubator-uniffle/common/src/main/java/org/apache/uniffle/common/rpc/GrpcServer.java	2026-09-08 21:22:58
+@@ -47,6 +47,11 @@
+ 
+ public class GrpcServer implements ServerInterface {
+ 
++
++  private static volatile int numExecutions;
++
++  public static void resetExecutions() { numExecutions = 0; }
++  public static int getExecutedStatus() { return numExecutions; }
+   private static final Logger LOG = LoggerFactory.getLogger(GrpcServer.class);
+ 
+   private Server server;
+@@ -157,6 +162,7 @@
+       grpcMetrics.incGauge(GRPCMetrics.GRPC_SERVER_EXECUTOR_ACTIVE_THREADS_KEY);
+       grpcMetrics.setGauge(
+           GRPCMetrics.GRPC_SERVER_EXECUTOR_BLOCKING_QUEUE_SIZE_KEY, getQueue().size());
++      numExecutions++;
+       super.beforeExecute(t, r);
+     }
+ 
+@@ -211,4 +217,4 @@
+   public int getPort() {
+     return listenPort;
+   }
+-}
++}
+\ No newline at end of file

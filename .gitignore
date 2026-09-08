@@ -10,5 +10,4 @@ target/
 .flakesync/
 docs/
 .commandcode/
-results/
 .kilo/

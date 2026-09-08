@@ -7,24 +7,17 @@ import java.util.List;
 
 /**
  * Baseline B for the evaluation: a deliberately "dumb" filter with no code
- * understanding at all -- pure line-number proximity to the critical point,
- * within the same file. This isolates how much of DependencyCandidateFilter's
- * benefit comes from genuine dependency information vs. just "nearby code is
- * more likely relevant."
+ * understanding -- pure line-number proximity to the critical point within
+ * the same file. This isolates how much of DependencyCandidateFilter's
+ * benefit comes from genuine dependency info vs. just "nearby code is more
+ * likely relevant."
  *
- * Only applies when the critical point and the candidate range are in the
- * SAME file (as in the Agent.java-style same-file search loop). When they're
- * in different files (as in the GrpcServerTest-style cross-file search loop),
- * comparing raw line numbers across files is meaningless, so this filter has
- * no signal and returns an empty priority list -- i.e. 0% reduction for that
- * case. That's an intentional, meaningful result to report, not a bug: it
- * shows a naive proximity baseline has literally no answer for cross-file
- * dependencies, whereas DependencyCandidateFilter does (via shared resource
- * names, as validated on the real GrpcServerTest example).
+ * Only applies when the critical point and candidate range are in the SAME
+ * file; across files, raw line numbers are meaningless and it returns an
+ * empty priority list (0% reduction), an intentional result to report.
  *
- * Use `-Dflakesync.filterMode=proximity` to select this, and
- * `-Dflakesync.proximityWindow=N` to change the window size (default 15
- * lines each direction from the critical point).
+ * Select with `-Dflakesync.filterMode=proximity`; adjust the window with
+ * `-Dflakesync.proximityWindow=N` (default 15 lines each direction).
  */
 public final class ProximityCandidateFilter implements CandidateFilter {
 

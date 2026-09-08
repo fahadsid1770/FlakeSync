@@ -1,0 +1,66 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -------------------< org.apache.uniffle:rss-common >--------------------
+[INFO] Building Apache Uniffle Common 0.8.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[WARNING] 1 problem was encountered while building the effective model for org.javassist:javassist:jar:3.18.1-GA during dependency collection step for project (use -X to see details)
+[INFO] 
+[INFO] --- jacoco:0.8.3:prepare-agent (default-prepare-agent) @ rss-common ---
+[INFO] argLine set to "-javaagent:/Users/fahad/.m2/repository/org/jacoco/org.jacoco.agent/0.8.3/org.jacoco.agent-0.8.3-runtime.jar=destfile=/Users/fahad/Documents/Professors Task/Shanto Rahman/FlakeSync/testscripts/input/apache/incubator-uniffle/common/target/jacoco.exec"
+[INFO] 
+[INFO] --- remote-resources:1.5:process (process-resource-bundles) @ rss-common ---
+[INFO] 
+[INFO] --- resources:2.7:resources (default-resources) @ rss-common ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] Copying 1 resource
+[INFO] Copying 4 resources
+[INFO] 
+[INFO] --- compiler:3.7.0:compile (default-compile) @ rss-common ---
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- antrun:1.8:run (pre-test-clean) @ rss-common ---
+[INFO] Executing tasks
+
+main:
+   [delete] Deleting directory /Users/fahad/Documents/Professors Task/Shanto Rahman/FlakeSync/testscripts/input/apache/incubator-uniffle/common/target/tmp
+[INFO] Executed tasks
+[INFO] 
+[INFO] --- antrun:1.8:run (create-tmp-dir) @ rss-common ---
+[INFO] Executing tasks
+
+main:
+    [mkdir] Created dir: /Users/fahad/Documents/Professors Task/Shanto Rahman/FlakeSync/testscripts/input/apache/incubator-uniffle/common/target/tmp
+[INFO] Executed tasks
+[INFO] 
+[INFO] --- resources:2.7:testResources (default-testResources) @ rss-common ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] Copying 2 resources
+[INFO] Copying 4 resources
+[INFO] 
+[INFO] --- compiler:3.7.0:testCompile (default-testCompile) @ rss-common ---
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- surefire:2.22.2:test (default-test) @ rss-common ---
+[WARNING]  Parameter 'systemProperties' is deprecated: Use systemPropertyVariables instead.
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running org.apache.uniffle.common.rpc.GrpcServerTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.58 s - in org.apache.uniffle.common.rpc.GrpcServerTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] 
+[INFO] --- jacoco:0.8.3:report (report) @ rss-common ---
+[INFO] Loading execution data file /Users/fahad/Documents/Professors Task/Shanto Rahman/FlakeSync/testscripts/input/apache/incubator-uniffle/common/target/jacoco.exec
+[INFO] Analyzed bundle 'Apache Uniffle Common' with 129 classes
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  2.706 s
+[INFO] Finished at: 2026-09-08T21:22:05+06:00
+[INFO] ------------------------------------------------------------------------

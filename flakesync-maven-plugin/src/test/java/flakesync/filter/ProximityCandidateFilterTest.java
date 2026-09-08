@@ -11,8 +11,7 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * ProximityCandidateFilter is pure line-number arithmetic (no parsing), so
- * this test is self-contained -- synthetic files/ranges rather than real
- * source, since the logic doesn't depend on actual code content at all.
+ * this test uses synthetic files/ranges rather than real source.
  *
  * Run with: mvn test -Dtest=ProximityCandidateFilterTest -pl flakesync-maven-plugin
  */
